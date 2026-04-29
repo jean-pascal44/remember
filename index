@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mes Post-its Libres</title>
+    <style>
+        :root {
+            --bg-color: #e5e7eb;
+            --panel-bg: #ffffff;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            margin: 0;
+            padding: 0;
+            overflow: hidden; /* Empêche le scroll pour un effet bureau */
+            height: 100vh;
+            width: 100vw;
+        }
+
+        /* Barre d'outils */
+        #toolbar {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: var(--panel-bg);
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            z-index: 1000;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .color-picker {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            border: 2px solid transparent;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .color-picker:hover { transform: scale(1.2); }
+        .color-picker.active { border-color: #333; }
+
+        button {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        button:hover { background: #1d4ed8; }
+
+        /* Style des Post-its */
+        .post-it {
+            position: absolute;
+            width: 200px;
+            min-height: 200px;
+            padding: 15px;
+            box-shadow: 5px 5px 15px rgba(0,0,0,0.15);
+            cursor: move;
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.1s;
+            border-bottom-right-radius: 30px 5px; /* Effet papier corné */
+        }
+
+        .post-it:active { transform: scale(1.02); z-index: 999; }
+
+        .post-it textarea {
+            background: transparent;
+            border: none;
+            resize: none;
+            flex-grow: 1;
+            font-family: 'Permanent Marker', cursive, sans-serif;
+            font-size: 1.1rem;
+            outline: none;
+            color: rgba(0,0,0,0.8);
+        }
+
+        .post-it .delete-btn {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: rgba(0,0,0,0.1);
+            border: none;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            font-size: 12px;
+            cursor: pointer;
+            display: none;
+        }
+
+        .post-it:hover .delete-btn { display: block; }
+        .post-it .delete-btn:hover { background: rgba(0,0,0,0.2); }
+
+        /* Couleurs des notes */
+        .yellow { background-color: #fef08a; }
+        .blue { background-color: #bfdbfe; }
+        .green { background-color: #bbf7d0; }
+        .pink { background-color: #fbcfe8; }
+        .orange { background-color: #fed7aa; }
+
+    </style>
+</head>
+<body>
+
+    <div id="toolbar">
+        <strong>Nouvelle note :</strong>
+        <div class="color-picker yellow active" data-color="yellow" style="background:#fef08a"></div>
+        <div class="color-picker blue" data-color="blue" style="background:#bfdbfe"></div>
+        <div class="color-picker green" data-color="green" style="background:#bbf7d0"></div>
+        <div class="color-picker pink" data-color="pink" style="background:#fbcfe8"></div>
+        <div class="color-picker orange" data-color="orange" style="background:#fed7aa"></div>
+        <button id="add-btn">+ Ajouter</button>
+        <span style="font-size: 0.8rem; color: #666; margin-left: 10px;">Glissez pour déplacer</span>
+    </div>
+
+    <div id="board"></div>
+
+    <script>
+        let notes = JSON.parse(localStorage.getItem('my_postits')) || [];
+        let selectedColor = 'yellow';
+        const board = document.getElementById('board');
+
+        // Gestion de la sélection de couleur
+        document.querySelectorAll('.color-picker').forEach(picker => {
+            picker.addEventListener('click', () => {
+                document.querySelector('.color-picker.active').classList.remove('active');
+                picker.classList.add('active');
+                selectedColor = picker.dataset.color;
+            });
+        });
+
+        // Ajouter une note
+        document.getElementById('add-btn').addEventListener('click', () => {
+            const id = Date.now();
+            const newNote = {
+                id: id,
+                text: '',
+                color: selectedColor,
+                x: 100 + (Math.random() * 50),
+                y: 150 + (Math.random() * 50)
+            };
+            notes.push(newNote);
+            createNoteElement(newNote);
+            save();
+        });
+
+        function createNoteElement(note) {
+            const div = document.createElement('div');
+            div.className = `post-it ${note.color}`;
+            div.id = `note-${note.id}`;
+            div.style.left = note.x + 'px';
+            div.style.top = note.y + 'px';
+
+            div.innerHTML = `
+                <button class="delete-btn">✕</button>
+                <textarea placeholder="Écrire ici...">${note.text}</textarea>
+            `;
+
+            // Suppression
+            div.querySelector('.delete-btn').addEventListener('click', () => {
+                div.remove();
+                notes = notes.filter(n => n.id !== note.id);
+                save();
+            });
+
+            // Sauvegarde texte
+            div.querySelector('textarea').addEventListener('input', (e) => {
+                const n = notes.find(n => n.id === note.id);
+                n.text = e.target.value;
+                save();
+            });
+
+            // Drag and Drop (Placement libre)
+            let isDragging = false;
+            let offset = { x: 0, y: 0 };
+
+            div.addEventListener('mousedown', (e) => {
+                if (e.target.tagName === 'TEXTAREA') return;
+                isDragging = true;
+                offset.x = e.clientX - div.offsetLeft;
+                offset.y = e.clientY - div.offsetTop;
+                div.style.zIndex = 1000;
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+                const x = e.clientX - offset.x;
+                const y = e.clientY - offset.y;
+                div.style.left = x + 'px';
+                div.style.top = y + 'px';
+                
+                const n = notes.find(n => n.id === note.id);
+                n.x = x;
+                n.y = y;
+            });
+
+            document.addEventListener('mouseup', () => {
+                if (isDragging) {
+                    isDragging = false;
+                    div.style.zIndex = 'auto';
+                    save();
+                }
+            });
+
+            board.appendChild(div);
+        }
+
+        function save() {
+            localStorage.setItem('my_postits', JSON.stringify(notes));
+        }
+
+        // Charger les notes au démarrage
+        notes.forEach(createNoteElement);
+    </script>
+</body>
+</html>
